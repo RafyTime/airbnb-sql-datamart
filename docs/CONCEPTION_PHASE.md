@@ -51,6 +51,8 @@ The system must support identity management, role assignments, listings, and rel
 * **Data types:** Monetary as DECIMAL(12,2); timestamps in UTC; currencies in ISO-4217 CHAR(3).  
 * **Normalization.** Aim for 3NF. Keep computed booking.total\_price for performance, with itemized booking\_fee rows for transparency.
 
+### **Data Dictionary**
+
 |Name|Type|Description|
 |:----|:----|:----|
 |**user**|||
@@ -251,3 +253,7 @@ The system must support identity management, role assignments, listings, and rel
 |payload|json|Payload with event‑specific details.|
 |created\_at|timestamp|Creation time of the notification.|
 |read\_at|timestamp?|When the notification was read.|
+
+### **Entity Relationship Model Diagram**
+
+![Entity Relationship Model Diagram](diagrams/er-model.svg)
