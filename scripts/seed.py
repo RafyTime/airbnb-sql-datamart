@@ -720,6 +720,11 @@ def seed_listings(
         beds = max(1, bedrooms + (1 if index % 4 == 0 else 0))
         bathrooms = Decimal(str(1 + (index % 3) * 0.5)).quantize(Decimal("0.1"))
         created_at = now_utc() - timedelta(days=60 + index)
+        address_line2 = (
+            f"Apt. {index:02d}"
+            if locale == "es_CO"
+            else f"Wohnung {index:02d}"
+        )
 
         listing_id = fetch_id(
             cursor,
@@ -765,7 +770,7 @@ def seed_listings(
                 beds,
                 bathrooms,
                 faker.street_address(),
-                faker.secondary_address() if index % 2 else None,
+                address_line2 if index % 2 else None,
                 faker.postcode(),
                 coordinate(faker.latitude()),
                 coordinate(faker.longitude()),
