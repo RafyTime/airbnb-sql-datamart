@@ -7,6 +7,7 @@ Part of the IU **Build a Data Mart in SQL** Prortfolio Project.
 ## 📦 Requirements
 
 - 🐳Docker (Docker Desktop & Compose)
+- 🐍Python & UV (seed script only)
 
 ## ⚙️ Setup
 
@@ -47,6 +48,22 @@ If you also want to remove the database volume and reset the data:
 docker compose down -v
 ```
 
+Run the seed script after the database is up:
+
+```bash
+uv sync 
+
+uv run scripts/seed.py
+```
+
+This creates deterministic dummy data for the schema and keeps foreign keys consistent.
+
+If you want to export the seeded data to SQL, dump the populated database into `database/seeds/`:
+
+```bash
+docker exec -t postgres pg_dump -U <DB_USER> --data-only --column-inserts <DB_NAME> > database/seeds/seeds.sql
+```
+
 ## 🔗 Connect pgAdmin to PostgreSQL
 
 Open pgAdmin in your browser:
@@ -75,3 +92,4 @@ Use `postgres` as the host because pgAdmin runs inside Docker and connects to th
 
 - The schema scripts are expected to be placed in `database/schema/` and will be executed automatically when the PostgreSQL container initializes.
 - The project documentation in `docs/phase_1/` should be used as the conceptual reference for the database implementation.
+- The Python seeder lives in `scripts/seed.py` and uses `Faker`, `psycopg`, and `python-dotenv`.
