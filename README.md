@@ -9,6 +9,22 @@ Part of the IU **Build a Data Mart in SQL** Prortfolio Project.
 - 🐳Docker (Docker Desktop & Compose)
 - 🐍Python & UV (seed script only)
 
+## **⌘** Quick Commands
+
+```bash
+# Start services
+docker-compose up -d
+
+# View logs
+docker-compose logs postgres
+
+# Stop
+docker-compose down
+
+# Stop and remove data
+docker-compose down -v
+```
+
 ## ⚙️ Setup
 
 1. Create a local `.env` file in the project root.

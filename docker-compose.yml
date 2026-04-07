@@ -1,31 +1,39 @@
 services:
   postgres:
-    container_name: postgres
+    container_name: airbnb_db
     image: postgres:18.3-alpine
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
     restart: unless-stopped
     volumes:
       - ./database/schema:/docker-entrypoint-initdb.d
-      - postgres_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   pgadmin:
-    container_name: pgadmin
+    container_name: airbnb_admin
     image: dpage/pgadmin4:latest
     environment:
       PGADMIN_DEFAULT_EMAIL: ${DB_USER}
       PGADMIN_DEFAULT_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "5050:80"
-    depends_on:
-      - postgres
+      - "${PGADMIN_PORT}:80"
     restart: always
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
-  postgres_data:
-
+  db_data:
+  pgadmin_data:
     
