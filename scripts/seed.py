@@ -7,6 +7,7 @@ Colombian Spanish Faker locales to keep the generated content varied.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import random
@@ -535,6 +536,26 @@ def seed_users(
     LOGGER.info("Seeding users and identity tables")
     users: list[UserSeed] = []
     now = now_utc()
+    session_devices = [
+        (
+            "web-chrome",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+        ),
+        (
+            "ios-app",
+            "Airbnb/24.15.1 (iPhone; iOS 17.4; Scale/3.00)",
+        ),
+        (
+            "android-app",
+            "Airbnb/24.15.1 (Linux; Android 14; Pixel 8)",
+        ),
+        (
+            "web-safari",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+        ),
+    ]
 
     for index, row in enumerate(user_rows, start=1):
         status = "active"
@@ -645,6 +666,39 @@ def seed_users(
                 "email profile" if provider != "password" else "local-login",
                 expires_at,
                 f"$2b$12${secrets.token_hex(16)}",
+            ),
+        )
+
+        session_tag, session_user_agent = session_devices[
+            (index - 1) % len(session_devices)
+        ]
+        session_seed = f"{slugify(row['email'])}:{index}:{session_tag}"
+        revoked_at = now - timedelta(days=index) if index % 5 == 0 else None
+        fetch_id(
+            cursor,
+            """
+            INSERT INTO session (
+                user_id,
+                token,
+                refresh_token,
+                user_agent,
+                ip_hash,
+                tag,
+                revoked_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING session_id;
+            """,
+            (
+                user_id,
+                hashlib.sha256(f"session-token:{session_seed}".encode()).hexdigest(),
+                hashlib.sha256(
+                    f"session-refresh:{session_seed}".encode()
+                ).hexdigest(),
+                session_user_agent,
+                hashlib.sha256(f"ip:{session_seed}".encode()).hexdigest(),
+                session_tag,
+                revoked_at,
             ),
         )
 
