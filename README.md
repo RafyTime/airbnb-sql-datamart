@@ -77,7 +77,7 @@ This creates deterministic dummy data for the schema and keeps foreign keys cons
 If you want to export the seeded data to SQL, dump the populated database into `database/seeds/`:
 
 ```bash
-docker exec -t postgres pg_dump -U <DB_USER> --data-only --column-inserts <DB_NAME> > database/seeds/seeds.sql
+docker exec -t airbnb_db pg_dump -U <DB_USER> --data-only --column-inserts <DB_NAME> > database/seeds/seeds.sql
 ```
 
 ## 🔗 Connect pgAdmin to PostgreSQL
