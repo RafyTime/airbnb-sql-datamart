@@ -1,12 +1,15 @@
-# Phase 2 Test Query Catalog
+# Phase 2 - Test Query Catalog
 
-This catalog groups validated PostgreSQL test queries by domain so a tutor can quickly confirm that the seeded Airbnb datamart contains working, app-like data across the full schema.
+This document shows a catalog of SQL queries that demonstrate how the phase 2 schema supports the Airbnb-style application. Each query pairs a practical use case with an executable statement so the schema can be evaluated against realistic operatioins and analytical scenarios.
 
-Each query below is designed as an individual test case for one table, while still joining nearby tables when that makes the result more realistic to review.
+The entities are grouped and organized in the same order as the phase 2 table schema implementation.
 
 ## Identity And Access
 
-### 1. `user`: recent user directory
+### 1. `user`
+
+**Use Case: Trust And Safety User Directory**  
+**Purpose:** This query shows the latest user accounts with verification state. This proves that core identity data is centralized in `user` and reused across the platform.
 
 ```sql
 SELECT
@@ -15,25 +18,26 @@ SELECT
     first_name,
     last_name,
     status,
-    verified_at,
+    (verified_at IS NOT NULL) AS is_verified,
     created_at
 FROM "user"
 ORDER BY created_at DESC
 LIMIT 10;
 ```
 
-This simulates an admin or trust-and-safety directory view of recently created users.
+### 2. `session`
 
-### 2. `session`: active sessions by device
+**Use Case: Active Device Sessions Dashboard**  
+**Purpose:** This query simulates a security dashboard that tracks active devices per user and proves that session records are cleanly separated from user identity data.
 
 ```sql
 SELECT
     s.session_id,
     u.email,
-    s.tag,
+    COALESCE(s.tag, 'unlabeled device') AS device_label,
     s.user_agent,
     s.created_at,
-    s.updated_at
+    s.updated_at AS last_seen_at
 FROM session s
 JOIN "user" u ON u.user_id = s.user_id
 WHERE s.revoked_at IS NULL
@@ -41,9 +45,10 @@ ORDER BY s.updated_at DESC, s.created_at DESC
 LIMIT 10;
 ```
 
-This simulates a security view of currently active user sessions.
+### 3. `account`
 
-### 3. `account`: linked login providers
+**Use Case: Linked Sign-In Methods**  
+**Purpose:** This query demonstrates how one user can have multiple authentication providers without duplicating profile data, which is a direct benefit of 3NF normalization.
 
 ```sql
 SELECT
@@ -54,13 +59,14 @@ SELECT
     a.created_at
 FROM account a
 JOIN "user" u ON u.user_id = a.user_id
-ORDER BY a.created_at DESC
+ORDER BY u.email, a.created_at DESC
 LIMIT 10;
 ```
 
-This simulates an account-management screen that shows how users sign in.
+### 4. `verification`
 
-### 4. `verification`: pending and consumed verifications
+**Use Case: Verification Queue Monitoring**  
+**Purpose:** This query simulates a support queue for verification flows and proves that verification events are stored independently from the user master record.
 
 ```sql
 SELECT
@@ -68,36 +74,45 @@ SELECT
     v.purpose,
     v.expires_at,
     v.consumed_at,
-    (v.consumed_at IS NULL) AS is_pending
+    CASE
+        WHEN v.consumed_at IS NOT NULL THEN 'completed'
+        WHEN v.expires_at < now() THEN 'expired'
+        ELSE 'pending'
+    END AS verification_state
 FROM verification v
 JOIN "user" u ON u.user_id = v.user_id
 ORDER BY v.created_at DESC
 LIMIT 10;
 ```
 
-This simulates support staff checking whether user verification flows are still pending or already used.
+### 5. `role`
 
-### 5. `role`: role catalog
+**Use Case: Authorization Role Coverage**  
+**Purpose:** This query shows how many active users currently hold each role, demonstrating that authorization rules are normalized into a reusable catalog instead of being hard-coded into user rows.
 
 ```sql
 SELECT
-    role_id,
-    name,
-    created_at
-FROM role
-ORDER BY name;
+    r.name AS role_name,
+    COUNT(ur.user_id) FILTER (WHERE ur.revoked_at IS NULL) AS active_user_count,
+    COUNT(ur.user_id) FILTER (WHERE ur.revoked_at IS NOT NULL) AS historical_assignment_count
+FROM role r
+LEFT JOIN user_role ur ON ur.role_id = r.role_id
+GROUP BY r.role_id, r.name
+ORDER BY active_user_count DESC, r.name;
 ```
 
-This simulates a simple authorization-role catalog used by the platform.
+### 6. `user_role`
 
-### 6. `user_role`: current role assignments
+**Use Case: Current Access Assignments**  
+**Purpose:** This query simulates an admin access review and proves that user-to-role assignments are tracked through a bridge table instead of repeating role data in the user entity.
 
 ```sql
 SELECT
     u.email,
     r.name AS role_name,
     ur.assigned_at,
-    ur.revoked_at
+    ur.revoked_at,
+    (ur.revoked_at IS NULL) AS is_active
 FROM user_role ur
 JOIN "user" u ON u.user_id = ur.user_id
 JOIN role r ON r.role_id = ur.role_id
@@ -105,9 +120,10 @@ ORDER BY ur.assigned_at DESC
 LIMIT 10;
 ```
 
-This simulates an admin screen for reviewing which users currently hold which roles.
+### 7. `user_profile`
 
-### 7. `user_profile`: profile completeness and localization
+**Use Case: Profile Readiness Review**  
+**Purpose:** This query simulates a profile-quality check and demonstrates that optional user presentation data is kept in `user_profile`, separate from the main account entity.
 
 ```sql
 SELECT
@@ -122,29 +138,59 @@ ORDER BY language_count DESC, bio_length DESC
 LIMIT 10;
 ```
 
-This simulates a profile-quality review that checks localization and profile completeness.
-
 ## Geography And Reference Data
 
-### 8. `location`: listing locations in the hierarchy
+### 8. `location`
+
+**Use Case: Destination Breadcrumb Builder**  
+**Purpose:** This recursive CTE rebuilds the full Country -> City -> Neighborhood path for listing locations and proves that hierarchical geography is normalized without storing repeated text paths in the listing table.
 
 ```sql
+WITH RECURSIVE location_path AS (
+    SELECT
+        l.location_id AS leaf_location_id,
+        l.location_id,
+        l.name,
+        l.type,
+        l.parent_location_id,
+        0 AS depth
+    FROM location l
+    WHERE l.type = 'neighborhood'
+
+    UNION ALL
+
+    SELECT
+        lp.leaf_location_id,
+        parent.location_id,
+        parent.name,
+        parent.type,
+        parent.parent_location_id,
+        lp.depth + 1
+    FROM location_path lp
+    JOIN location parent ON parent.location_id = lp.parent_location_id
+),
+listing_counts AS (
+    SELECT
+        location_id,
+        COUNT(*) AS listing_count
+    FROM listing
+    GROUP BY location_id
+)
 SELECT
-    child.name AS place_name,
-    child.type AS place_type,
-    parent.name AS parent_place,
-    COUNT(l.listing_id) AS listing_count
-FROM location child
-LEFT JOIN location parent ON parent.location_id = child.parent_location_id
-LEFT JOIN listing l ON l.location_id = child.location_id
-GROUP BY child.location_id, child.name, child.type, parent.name
-ORDER BY listing_count DESC, child.name
+    lp.leaf_location_id AS location_id,
+    STRING_AGG(lp.name, ' -> ' ORDER BY lp.depth DESC) AS full_location_path,
+    COALESCE(MAX(lc.listing_count), 0) AS listing_count
+FROM location_path lp
+LEFT JOIN listing_counts lc ON lc.location_id = lp.leaf_location_id
+GROUP BY lp.leaf_location_id
+ORDER BY listing_count DESC, full_location_path
 LIMIT 10;
 ```
 
-This simulates a catalog of places and shows which nodes in the hierarchy currently have listings attached.
+### 9. `amenity`
 
-### 9. `amenity`: amenity adoption across listings
+**Use Case: Guest Filter Popularity Report**  
+**Purpose:** This query shows which amenities appear most often in listings, proving that reusable amenities are managed in a reference table instead of being duplicated in each listing row.
 
 ```sql
 SELECT
@@ -159,15 +205,17 @@ ORDER BY listings_using_amenity DESC, a.name
 LIMIT 10;
 ```
 
-This simulates a reference-data report showing which amenities are most common.
+### 10. `house_rule`
 
-### 10. `house_rule`: house-rule usage
+**Use Case: Pre-Booking Rule Adoption**  
+**Purpose:** This query identifies the house rules guests see most often before booking, showing that rule definitions are normalized and reused through a many-to-many relationship.
 
 ```sql
 SELECT
     hr.code,
     hr.name,
-    COUNT(lhr.listing_id) AS listings_using_rule
+    COUNT(lhr.listing_id) AS listings_using_rule,
+    COUNT(lhr.note) AS rules_with_custom_note
 FROM house_rule hr
 LEFT JOIN listing_house_rule lhr ON lhr.rule_id = hr.rule_id
 GROUP BY hr.rule_id, hr.code, hr.name
@@ -175,15 +223,17 @@ ORDER BY listings_using_rule DESC, hr.name
 LIMIT 10;
 ```
 
-This simulates a rule-catalog report showing which house rules hosts apply most often.
+### 11. `fee_type`
 
-### 11. `fee_type`: booking fee catalog in use
+**Use Case: Checkout Fee Mix Analysis**  
+**Purpose:** This query demonstrates which fee types contribute most often and most heavily to bookings, proving that pricing components are normalized into reusable fee categories.
 
 ```sql
 SELECT
     ft.code,
     ft.name,
     COUNT(bf.booking_id) AS bookings_with_fee,
+    ROUND(COALESCE(AVG(bf.amount), 0), 2) AS average_fee_amount,
     COALESCE(SUM(bf.amount), 0) AS total_fee_amount
 FROM fee_type ft
 LEFT JOIN booking_fee bf ON bf.fee_type_id = ft.fee_type_id
@@ -192,49 +242,63 @@ ORDER BY total_fee_amount DESC, ft.name
 LIMIT 10;
 ```
 
-This simulates a finance check on which fee types appear in booking charges.
+### 12. `cancellation_policy`
 
-### 12. `cancellation_policy`: policy adoption by listings
+**Use Case: Policy Adoption And Booking Impact**  
+**Purpose:** This query shows how cancellation policies affect both listings and completed bookings, proving that policy rules are stored once and referenced by multiple transactional tables.
 
 ```sql
 SELECT
     cp.code,
     cp.name,
-    COUNT(l.listing_id) AS active_listing_count
+    COUNT(DISTINCT l.listing_id) AS listing_count,
+    COUNT(DISTINCT b.booking_id) AS booking_count
 FROM cancellation_policy cp
 LEFT JOIN listing l ON l.policy_id = cp.policy_id
+LEFT JOIN booking b ON b.policy_id = cp.policy_id
 GROUP BY cp.policy_id, cp.code, cp.name
-ORDER BY active_listing_count DESC, cp.name
+ORDER BY booking_count DESC, listing_count DESC, cp.name
 LIMIT 10;
 ```
 
-This simulates a host-policy overview showing which cancellation policies are actually used.
-
 ## Listings And Availability
 
-### 13. `listing`: active listing directory
+### 13. `listing`
+
+**Use Case: Guest Search Results**  
+**Purpose:** This query simulates the listing cards shown in search results by joining the listing, its normalized location, and exactly one cover photo for display.
 
 ```sql
 SELECT
     l.listing_id,
     l.title,
-    host.email AS host_email,
-    loc.name AS place_name,
+    CONCAT_WS(' -> ', country.name, city.name, neighborhood.name) AS location_path,
     l.property_type,
     l.room_type,
+    l.accommodates,
     l.base_price,
     l.currency,
-    l.status
+    cover_photo.url AS cover_image_url
 FROM listing l
-JOIN "user" host ON host.user_id = l.host_id
-JOIN location loc ON loc.location_id = l.location_id
-ORDER BY l.created_at DESC
+JOIN location neighborhood ON neighborhood.location_id = l.location_id
+LEFT JOIN location city ON city.location_id = neighborhood.parent_location_id
+LEFT JOIN location country ON country.location_id = city.parent_location_id
+LEFT JOIN LATERAL (
+    SELECT lp.url
+    FROM listing_photo lp
+    WHERE lp.listing_id = l.listing_id
+    ORDER BY lp.is_cover DESC, lp.sort_order ASC, lp.uploaded_at ASC
+    LIMIT 1
+) AS cover_photo ON TRUE
+WHERE l.status = 'active'
+ORDER BY l.base_price ASC, l.created_at DESC
 LIMIT 10;
 ```
 
-This simulates an operations view of the latest listings with host and place context.
+### 14. `listing_photo`
 
-### 14. `listing_photo`: cover photos for listing cards
+**Use Case: Listing Card Cover Image Audit**  
+**Purpose:** This query shows the image selected as the public-facing cover photo, proving that media assets are separated from the main listing entity and can be managed independently.
 
 ```sql
 SELECT
@@ -250,9 +314,10 @@ ORDER BY lp.uploaded_at DESC
 LIMIT 10;
 ```
 
-This simulates the photo selected for listing search results and detail pages.
+### 15. `listing_amenity`
 
-### 15. `listing_amenity`: amenity checklist per listing
+**Use Case: Listing Amenities Checklist**  
+**Purpose:** This query simulates the amenity checklist on a listing detail page and shows how a bridge table connects reusable amenities to many listings without duplication.
 
 ```sql
 SELECT
@@ -266,9 +331,10 @@ ORDER BY l.title, a.name
 LIMIT 15;
 ```
 
-This simulates the checklist that a guest sees on a listing details page.
+### 16. `listing_house_rule`
 
-### 16. `listing_house_rule`: rule notes per listing
+**Use Case: Pre-Booking Rule Disclosure**  
+**Purpose:** This query simulates the rules section shown before a guest confirms a reservation and proves that listing-specific rule notes are kept separate from the reusable house-rule catalog.
 
 ```sql
 SELECT
@@ -282,9 +348,10 @@ ORDER BY l.title, hr.name
 LIMIT 15;
 ```
 
-This simulates the house-rules section shown to guests before booking.
+### 17. `listing_blocked_date`
 
-### 17. `listing_blocked_date`: blocked availability calendar
+**Use Case: Host Calendar Availability Control**  
+**Purpose:** This query demonstrates how hosts block unavailable dates without changing the listing row itself, which proves that temporal availability is normalized into its own table.
 
 ```sql
 SELECT
@@ -297,33 +364,48 @@ ORDER BY lbd.day, l.title
 LIMIT 10;
 ```
 
-This simulates the host calendar view of blocked dates and their reasons.
-
 ## Bookings And Money
 
-### 18. `booking`: recent booking history
+### 18. `booking`
+
+**Use Case: Guest Trip Summary**  
+**Purpose:** This query simulates the guest trip overview by combining reservation data, listing context, and payment status from related tables, which proves the transactional integrity of the booking flow.
 
 ```sql
+WITH payment_rollup AS (
+    SELECT
+        booking_id,
+        SUM(CASE WHEN txn_type = 'payment' AND status = 'succeeded' THEN amount ELSE 0 END) AS paid_amount,
+        MAX(CASE WHEN txn_type = 'payment' THEN status END) AS latest_payment_status,
+        MAX(occurred_at) AS last_payment_at
+    FROM payment_transaction
+    GROUP BY booking_id
+)
 SELECT
     b.booking_id,
     guest.email AS guest_email,
     l.title AS listing_title,
     b.checkin_date,
     b.checkout_date,
+    (b.checkout_date - b.checkin_date) AS nights,
     b.guests_count,
     b.status,
     b.total_price,
-    b.currency
+    COALESCE(pr.paid_amount, 0) AS paid_amount,
+    COALESCE(pr.latest_payment_status, 'no payment yet') AS payment_status,
+    pr.last_payment_at
 FROM booking b
 JOIN "user" guest ON guest.user_id = b.guest_id
 JOIN listing l ON l.listing_id = b.listing_id
-ORDER BY b.created_at DESC
+LEFT JOIN payment_rollup pr ON pr.booking_id = b.booking_id
+ORDER BY b.checkin_date DESC, b.created_at DESC
 LIMIT 10;
 ```
 
-This simulates a booking-management view for recent reservations.
+### 19. `booking_fee`
 
-### 19. `booking_fee`: fee breakdown per reservation
+**Use Case: Booking Receipt Fee Breakdown**  
+**Purpose:** This query mirrors the itemized receipt a guest would see and proves that each booking fee is traceable through normalized joins to both the booking and fee catalog tables.
 
 ```sql
 SELECT
@@ -338,9 +420,10 @@ ORDER BY b.created_at DESC, ft.name
 LIMIT 15;
 ```
 
-This simulates the fee lines a guest sees during checkout and in receipts.
+### 20. `payment_transaction`
 
-### 20. `payment_transaction`: recent payment activity
+**Use Case: Reservation Payment Timeline**  
+**Purpose:** This query simulates a payment-operations timeline and proves that multiple transaction events can be linked to one reservation without overloading the booking table itself.
 
 ```sql
 SELECT
@@ -358,9 +441,10 @@ ORDER BY pt.occurred_at DESC
 LIMIT 10;
 ```
 
-This simulates a payment-operations feed for booking transactions.
+### 21. `payout`
 
-### 21. `payout`: host payouts sent for bookings
+**Use Case: Host Financial Ledger**  
+**Purpose:** This query shows the payout history sent to hosts and proves that host disbursements are tracked separately from guest payments while still remaining linked to the original booking.
 
 ```sql
 SELECT
@@ -378,29 +462,32 @@ ORDER BY p.sent_at DESC
 LIMIT 10;
 ```
 
-This simulates the payout queue or payout history reviewed by finance staff.
-
 ## Messaging And Engagement
 
-### 22. `message_thread`: conversation threads tied to listings
+### 22. `message_thread`
+
+**Use Case: Reservation Conversation Inbox**  
+**Purpose:** This query simulates the inbox summary for guest-host conversations and proves that threads can be linked to both listings and bookings without mixing message content into master entities.
 
 ```sql
 SELECT
     mt.thread_id,
     l.title AS listing_title,
     mt.booking_id,
-    COUNT(m.message_id) AS message_count
+    COUNT(m.message_id) AS message_count,
+    MAX(m.sent_at) AS last_message_at
 FROM message_thread mt
 JOIN listing l ON l.listing_id = mt.listing_id
 LEFT JOIN message m ON m.thread_id = mt.thread_id
 GROUP BY mt.thread_id, l.title, mt.booking_id
-ORDER BY message_count DESC, mt.thread_id
+ORDER BY last_message_at DESC NULLS LAST, message_count DESC
 LIMIT 10;
 ```
 
-This simulates an inbox view of listing conversations and their activity levels.
+### 23. `message`
 
-### 23. `message`: recent messages with sender context
+**Use Case: Conversation Activity Feed**  
+**Purpose:** This query shows the latest messages sent by users inside threads, proving that individual communication events are stored separately from the thread header.
 
 ```sql
 SELECT
@@ -415,9 +502,10 @@ ORDER BY m.sent_at DESC
 LIMIT 10;
 ```
 
-This simulates the latest message feed shown inside a host or guest inbox.
+### 24. `wishlist`
 
-### 24. `wishlist`: wishlists owned by users
+**Use Case: Saved Trip Collections**  
+**Purpose:** This query simulates the wishlist overview in a guest account and proves that list ownership is normalized separately from the listings saved inside each list.
 
 ```sql
 SELECT
@@ -434,15 +522,18 @@ ORDER BY saved_listing_count DESC, w.created_at DESC
 LIMIT 10;
 ```
 
-This simulates the wishlists a guest has created and how full they are.
+### 25. `wishlist_item`
 
-### 25. `wishlist_item`: saved listings inside wishlists
+**Use Case: Wishlist Property Lineup**  
+**Purpose:** This query shows the exact listings saved into wishlists, demonstrating how a bridge table cleanly handles many-to-many relationships between travelers and properties.
 
 ```sql
 SELECT
     u.email,
     w.name AS wishlist_name,
     l.title AS listing_title,
+    l.base_price,
+    l.currency,
     wi.added_at
 FROM wishlist_item wi
 JOIN wishlist w ON w.wishlist_id = wi.wishlist_id
@@ -452,9 +543,10 @@ ORDER BY wi.added_at DESC
 LIMIT 10;
 ```
 
-This simulates the individual properties a guest has saved to a wishlist.
+### 26. `referral`
 
-### 26. `referral`: referral relationships between users
+**Use Case: Referral Attribution Chain**  
+**Purpose:** This query simulates referral-program tracking and proves that the relationship between inviter and invitee is stored as a dedicated transactional event between two user records.
 
 ```sql
 SELECT
@@ -468,31 +560,33 @@ ORDER BY r.created_at DESC
 LIMIT 10;
 ```
 
-This simulates referral-program activity between existing users.
+### 27. `review`
 
-### 27. `review`: recent review feed for completed stays
+**Use Case: Verified Review Feed**  
+**Purpose:** This triple join proves that each review belongs to a real booking and a real user account, which is exactly how Airbnb-style verified reviews should be enforced.
 
 ```sql
 SELECT
-    l.title AS listing_title,
+    r.review_id,
     reviewer.email AS reviewer_email,
-    reviewee.email AS reviewee_email,
+    b.booking_id,
+    b.checkin_date,
+    b.checkout_date,
     r.rating,
     r.title,
     LEFT(r.body, 100) AS review_preview,
-    r.created_at
+    r.created_at AS reviewed_at
 FROM review r
 JOIN booking b ON b.booking_id = r.booking_id
-JOIN listing l ON l.listing_id = b.listing_id
 JOIN "user" reviewer ON reviewer.user_id = r.reviewer_user_id
-JOIN "user" reviewee ON reviewee.user_id = r.reviewee_user_id
 ORDER BY r.created_at DESC
 LIMIT 10;
 ```
 
-This simulates the review feed shown on listing and user profile pages.
+### 28. `notification`
 
-### 28. `notification`: recent notification feed
+**Use Case: User Activity Center**  
+**Purpose:** This query simulates the notification center inside the app and proves that user-facing event alerts are stored independently from the business entities that triggered them.
 
 ```sql
 SELECT
@@ -507,39 +601,91 @@ ORDER BY n.created_at DESC
 LIMIT 10;
 ```
 
-This simulates the latest notifications shown to users in the app.
+## Supplementary Analytical Queries
 
-## Coverage Map
+These queries are intentionally more elaborate than the core showcase set. They are included as additional examples of how the normalized schema can support broader reporting, but they are not part of the main presentation-oriented catalog.
 
-| Query | Primary Table |
-| --- | --- |
-| 1 | `user` |
-| 2 | `session` |
-| 3 | `account` |
-| 4 | `verification` |
-| 5 | `role` |
-| 6 | `user_role` |
-| 7 | `user_profile` |
-| 8 | `location` |
-| 9 | `amenity` |
-| 10 | `house_rule` |
-| 11 | `fee_type` |
-| 12 | `cancellation_policy` |
-| 13 | `listing` |
-| 14 | `listing_photo` |
-| 15 | `listing_amenity` |
-| 16 | `listing_house_rule` |
-| 17 | `listing_blocked_date` |
-| 18 | `booking` |
-| 19 | `booking_fee` |
-| 20 | `payment_transaction` |
-| 21 | `payout` |
-| 22 | `message_thread` |
-| 23 | `message` |
-| 24 | `wishlist` |
-| 25 | `wishlist_item` |
-| 26 | `referral` |
-| 27 | `review` |
-| 28 | `notification` |
+### 29. Global Revenue Analytics
 
-Every table in the schema now has its own individual, practical query: `user`, `session`, `account`, `verification`, `role`, `user_role`, `user_profile`, `location`, `amenity`, `house_rule`, `fee_type`, `cancellation_policy`, `listing`, `listing_photo`, `listing_amenity`, `listing_house_rule`, `listing_blocked_date`, `booking`, `booking_fee`, `payment_transaction`, `payout`, `message_thread`, `message`, `wishlist`, `wishlist_item`, `referral`, `review`, and `notification`.
+**Use Case: Country-Level Revenue Performance**  
+**Purpose:** This query aggregates guest payments, host payouts, and retained platform fees by country, proving that the normalized schema can support meaningful executive reporting across bookings, payments, payouts, listings, and locations.
+
+```sql
+WITH booking_financials AS (
+    SELECT
+        b.booking_id,
+        COALESCE(country.name, city.name, neighborhood.name) AS country_name,
+        SUM(
+            CASE
+                WHEN pt.txn_type = 'payment' AND pt.status = 'succeeded' THEN pt.amount
+                ELSE 0
+            END
+        ) AS total_income,
+        MAX(
+            CASE
+                WHEN p.status IN ('sent', 'scheduled') THEN p.amount
+                ELSE 0
+            END
+        ) AS host_payout
+    FROM booking b
+    JOIN listing l ON l.listing_id = b.listing_id
+    JOIN location neighborhood ON neighborhood.location_id = l.location_id
+    LEFT JOIN location city ON city.location_id = neighborhood.parent_location_id
+    LEFT JOIN location country ON country.location_id = city.parent_location_id
+    LEFT JOIN payment_transaction pt ON pt.booking_id = b.booking_id
+    LEFT JOIN payout p ON p.booking_id = b.booking_id
+    GROUP BY
+        b.booking_id,
+        COALESCE(country.name, city.name, neighborhood.name)
+)
+SELECT
+    country_name AS country,
+    ROUND(SUM(total_income), 2) AS total_income,
+    ROUND(SUM(host_payout), 2) AS total_host_payouts,
+    ROUND(SUM(total_income) - SUM(host_payout), 2) AS platform_fees_retained
+FROM booking_financials
+GROUP BY country_name
+ORDER BY total_income DESC, country;
+```
+
+### 30. Host Leaderboard
+
+**Use Case: Top Host Performance Ranking**  
+**Purpose:** This query ranks hosts by payout volume and average rating, proving that the datamart can combine financial and reputation data from separate normalized entities into one meaningful business view.
+
+```sql
+WITH host_payouts AS (
+    SELECT
+        p.host_id,
+        SUM(p.amount) AS total_payout_amount,
+        COUNT(*) AS paid_booking_count
+    FROM payout p
+    WHERE p.status IN ('sent', 'scheduled')
+    GROUP BY p.host_id
+),
+host_ratings AS (
+    SELECT
+        r.reviewee_user_id AS host_id,
+        AVG(r.rating)::NUMERIC(10, 2) AS average_rating,
+        COUNT(*) AS review_count
+    FROM review r
+    JOIN booking b ON b.booking_id = r.booking_id
+    JOIN listing l ON l.listing_id = b.listing_id
+    WHERE r.reviewee_user_id = l.host_id
+    GROUP BY r.reviewee_user_id
+)
+SELECT
+    RANK() OVER (
+        ORDER BY hp.total_payout_amount DESC, COALESCE(hr.average_rating, 0) DESC
+    ) AS host_rank,
+    u.email AS host_email,
+    hp.paid_booking_count,
+    ROUND(hp.total_payout_amount, 2) AS total_payout_amount,
+    COALESCE(hr.average_rating, 0) AS average_rating,
+    COALESCE(hr.review_count, 0) AS review_count
+FROM host_payouts hp
+JOIN "user" u ON u.user_id = hp.host_id
+LEFT JOIN host_ratings hr ON hr.host_id = hp.host_id
+ORDER BY host_rank, host_email
+LIMIT 10;
+```
