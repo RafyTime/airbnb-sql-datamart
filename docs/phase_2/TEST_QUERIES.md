@@ -364,7 +364,7 @@ ORDER BY lbd.day, l.title
 LIMIT 10;
 ```
 
-## Bookings And Money
+## Bookings And Payments
 
 ### 18. `booking`
 
