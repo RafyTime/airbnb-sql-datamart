@@ -1,111 +1,51 @@
 # Airbnb SQL Datamart
 
-The repository models an Airbnb-style booking system with a relational database design using PostgreSQL, focused on clarity, normalization, and practical use cases.
-
-Part of the IU **Build a Data Mart in SQL** Prortfolio Project.
+Airbnb-style PostgreSQL datamart for the IU **Build a Data Mart in SQL** portfolio project.
 
 ## 📦 Requirements
 
-- 🐳Docker (Docker Desktop & Compose)
-- 🐍Python & UV (seed script only)
-
-## **⌘** Quick Commands
-
-```bash
-# Start services
-docker-compose up -d
-
-# View logs
-docker-compose logs postgres
-
-# Stop
-docker-compose down
-
-# Stop and remove data
-docker-compose down -v
-```
+- 🐳 Docker Desktop with Docker Compose
 
 ## ⚙️ Setup
 
-1. Create a local `.env` file in the project root.
-2. Copy the values from `.env.example`.
-3. Adjust the credentials if needed.
-
-Example:
-
-```env
-DB_NAME=airbnb_datamart
-DB_USER=admin@email.com # ⚠️must be an email!
-DB_PASSWORD=Admin_123
-```
-
-## ▶️ Usage
-
-Start the services with Docker Compose:
+1. Copy `.env.example` to `.env`. Adjust values if needed.
+2. Start the database and pgAdmin:
 
 ```bash
 docker compose up -d
 ```
 
-This starts:
+PostgreSQL runs on `localhost:5432` and pgAdmin runs on `http://localhost:5050`.
+On first startup Docker automatically loads:
 
-- `postgres` on port `5432`
-- `pgadmin` on port `5050`
+- `database/01_schema.sql`
+- `database/02_seeds.sql`
+- `database/03_functions.sql`
 
-If you need to stop and remove the containers, use:
-
-```bash
-docker compose down
-```
-
-If you also want to remove the database volume and reset the data:
+To reset and reload everything from scratch:
 
 ```bash
 docker compose down -v
+docker compose up -d
 ```
 
-Run the seed script after the database is up:
+## 🔗 pgAdmin Connection
 
-```bash
-uv sync 
+Log in to pgAdmin with the `DB_USER` and `DB_PASSWORD` from `.env`, then register a server:
 
-uv run scripts/seed.py
-```
-
-This creates deterministic dummy data for the schema and keeps foreign keys consistent.
-
-If you want to export the seeded data to SQL, dump the populated database into `database/seeds/`:
-
-```bash
-docker exec -t airbnb_db pg_dump -U <DB_USER> --data-only --column-inserts <DB_NAME> > database/seeds/seeds.sql
-```
-
-## 🔗 Connect pgAdmin to PostgreSQL
-
-Open pgAdmin in your browser:
-
-```text
-http://localhost:5050
-```
-
-Log in with the credentials from your `.env` file:
-
-- Email: `DB_USER`
-- Password: `DB_PASSWORD`
-
-Then register a new server with these values:
-
-- Name: any label you want, for example `airbnb_datamart`
-- Host name/address: `postgres`
+- Host: `postgres`
 - Port: `5432`
-- Maintenance database: `DB_NAME`
+- Database: `DB_NAME`
 - Username: `DB_USER`
 - Password: `DB_PASSWORD`
 
-Use `postgres` as the host because pgAdmin runs inside Docker and connects to the database service through the internal Docker network.
+## 🧪 Test Query Functions
 
-## 🗒️ Notes
+The showcase queries from `docs/phase_2/TEST_QUERIES.md` are loaded as functions in `database/03_functions.sql`.
 
-- The schema scripts are expected to be placed in `database/schema/` and will be executed automatically when the PostgreSQL container initializes.
-- The project documentation in `docs/phase_1/` should be used as the conceptual reference for the database implementation.
-- The Python seeder lives in `scripts/seed.py` and uses `Faker`, `psycopg`, and `python-dotenv`.
+Example:
+
+```sql
+SELECT * FROM listing_test_query();
+SELECT * FROM booking_test_query();
+```
