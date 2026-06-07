@@ -1,7 +1,6 @@
-pg_dump: warning: there are circular foreign-key constraints on this table:
-pg_dump: detail: location
-pg_dump: hint: You might not be able to restore the dump without using --disable-triggers or temporarily dropping the constraints.
-pg_dump: hint: Consider using a full dump instead of a --data-only dump to avoid this problem.
+-- Airbnb SQL Datamart seed data
+-- Loaded second by Docker Compose from /docker-entrypoint-initdb.d/02_seeds.sql
+
 --
 -- PostgreSQL database dump
 --
