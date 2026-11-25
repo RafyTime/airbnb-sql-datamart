@@ -10,7 +10,7 @@
 
 - IU “Build a Data Mart in SQL” portfolio project: Airbnb-style normalized PostgreSQL datamart covering users, listings, bookings, payments, reviews, messaging, and related entities per phase 1 design docs.
 - Course requirements expect seeded data to meet minimum row counts per table (on the order of at least 20 rows each across the full schema); the Python seeder should populate every table accordingly.
-- Phase 1 design lives under `docs/phase_1/` (conception, data dictionary, ERD); high-level requirements are in `docs/REQUIREMENTS.md`.
+- Phase 1 design lives under `docs/phase_1/` (conception, data dictionary, ERD).
 - Phase 2 artifacts, including the validated PostgreSQL test query catalog, live under `docs/phase_2/` (for example `docs/phase_2/test_queries.md`).
 - Database implementation DDL is intended under `database/schema/` (often grouped by domain); Docker Compose mounts `./database/schema` to the Postgres container’s `/docker-entrypoint-initdb.d` for first-time initialization.
 - PostgreSQL and pgAdmin are started via Docker Compose; from pgAdmin on that network, connect to PostgreSQL using host `postgres`, port `5432`, and the credentials configured in `.env` (see README).
